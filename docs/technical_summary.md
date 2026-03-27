@@ -1,6 +1,6 @@
 # Technical Summary
 
-## EEG-Based Alcoholism Detection Using Band-Power Features and Subject-Aware SVM
+## EEG-Based Alcoholism Detection Using P300 ERP and Band-Power Features with Subject-Aware SVM
 
 ---
 
@@ -104,28 +104,46 @@ For each outer fold: accuracy, F1, precision, recall, ROC-AUC, confusion matrix 
 
 ## 5. Results
 
-Results are from the S1 obj condition, all 61 electrodes, 4-fold GroupKFold, seed=42.
+All results: 4-fold GroupKFold (subject-held-out), seed=42.
+
+### 5.1 Three-mode comparison
+
+| Feature mode | n_features | Condition | Acc (mean±SD) | F1 | ROC-AUC (mean±SD) |
+|---|---|---|---|---|---|
+| Band-power only | 244 | S1 obj | 0.531 ± 0.211 | 0.529 | 0.527 ± 0.289 |
+| **P300 only** | **20** | **S2 nomatch** | **0.483 ± 0.144** | **0.559** | **0.587 ± 0.090** |
+| Combined P300 + band-power | 264 | S2 nomatch | 0.391 ± 0.237 | 0.427 | 0.584 ± 0.353 |
+
+### 5.2 Per-fold detail — P300 only (best mode)
 
 | Fold | Test subjects | Acc | F1 | AUC |
 |------|--------------|-----|-----|-----|
-| 1 | 0369, 0375, 0340, 0345 | 0.775 | 0.791 | 0.878 |
-| 2 | 0368, 0372, 0339, 0344 | 0.375 | 0.359 | 0.335 |
-| 3 | 0365, 0371, 0338, 0342 | 0.275 | 0.216 | 0.165 |
-| 4 | 0364, 0370, 0337, 0341 | 0.700 | 0.750 | 0.732 |
-| **Mean** | | **0.531** | **0.529** | **0.527** |
-| **± SD** | | **0.211** | **0.247** | **0.289** |
+| 1 | 0365, 0369, 0372, 0337 | 0.486 | 0.553 | 0.579 |
+| 2 | 0370, 0338, 0339, 0341 | 0.459 | 0.622 | 0.617 |
+| 3 | 0364, 0371, 0340, 0345 | 0.595 | 0.621 | 0.675 |
+| 4 | 0368, 0375, 0342, 0344 | 0.392 | 0.441 | 0.476 |
+| **Mean** | | **0.483** | **0.559** | **0.587** |
+| **± SD** | | **0.144** | **0.098** | **0.090** |
 
-### Interpretation
+### 5.3 Interpretation
 
-Mean performance is **near chance (0.50 baseline)** with **very high fold-to-fold variance (±0.21–0.29)**. This is the expected honest result for a dataset of only 16 subjects under proper subject-held-out evaluation.
+**P300-only is the most stable and scientifically grounded mode:**
 
-The range from 0.275 to 0.775 across folds reveals that classification success depends heavily on which 4 subjects land in the test set — a direct consequence of the small cohort size. Some subjects may have more pronounced or more detectable AUD-related EEG changes than others; with 8 subjects per class, a single atypical subject dramatically affects fold-level performance.
+- Lowest AUC variance by a factor of 3 (±0.090 vs ±0.289 for band-power, ±0.353 for combined)
+- Highest mean ROC-AUC (0.587) with only 20 features vs 244 or 264
+- Consistent with the AUD literature — P300 amplitude reduction is one of the most replicated neurophysiological findings in AUD research
 
-### What this tells us
+**Why does combined perform worse than P300 alone?**
+Adding 244 band-power features to 20 P300 features when training on ~110 samples
+per fold causes the SVM to overfit to the high-dimensional band-power block,
+drowning out the discriminative P300 signal. This is the **curse of dimensionality**
+on a small-n dataset. The combined approach would benefit from PCA or feature
+selection before SVM.
 
-- The current feature set and model **cannot reliably generalise** to unseen individuals at this dataset size.
-- The result does **not** mean alpha-band power is useless as a biomarker — it means 16 subjects is insufficient to train a generalisable model.
-- Published studies showing high accuracy on this dataset using random splits are reporting **subject-recognition performance**, not **AUD classification performance**.
+**All modes are near chance at this dataset size (n=16).** The honest conclusion is
+that 16 subjects is insufficient for a generalisable EEG-based AUD classifier,
+regardless of feature choice. P300 is the correct scientific choice; the sample
+size is the binding constraint.
 
 ---
 
@@ -134,28 +152,29 @@ The range from 0.275 to 0.775 across folds reveals that classification success d
 | Aspect | Original code | Corrected pipeline |
 |--------|--------------|-------------------|
 | Train/test split | `train_test_split` on rows | `GroupKFold(groups=subject)` |
-| Data per "sample" | 1 electrode row | 1 full trial (61 electrodes) |
-| Features | Raw FFT magnitude (8–13 Hz only) | Welch PSD in 4 bands, all 61 electrodes |
-| Subject leakage | Yes — same subject in train + test | No — test subjects never seen in training |
-| Class labeling | One version used asymmetric conditions | Both classes from same condition (S1 obj) |
-| Hyperparameter search | None (default SVM) | Inner GroupKFold GridSearchCV |
-| Metrics | Accuracy only | Acc, F1, Precision, Recall, ROC-AUC, CM |
-| Reproducibility | Hardcoded paths | CLI args, seed, modular code |
-| Reported accuracy | ~70–90% (inflated, unverifed) | 53.1% ± 21.1% (honest, reproducible) |
+| Data per sample | 1 electrode row | 1 full trial (61 electrodes) |
+| Features | Raw FFT magnitude, 8–13 Hz only | Welch PSD 4 bands + P300 ERP |
+| P300 electrodes | Deleted (P, CP, O regions removed) | Restored: CZ, PZ, P3, P4, POZ |
+| Subject leakage | Yes | No |
+| Condition labeling | Asymmetric (AUD=S2nomatch, ctrl=S2match) | Both classes from same condition |
+| Hyperparameter search | None | Inner GroupKFold GridSearchCV |
+| Metrics | Accuracy only | Acc, F1, Prec, Rec, ROC-AUC, CM |
+| Reproducibility | Hardcoded paths | CLI, seed, modular code |
+| Reported accuracy | ~70–90% (leaky, unverified) | 48.3% ± 14.4% (honest, P300 mode) |
 
 ---
 
 ## 7. Limitations
 
-1. **Sample size (n=16):** Below the minimum for robust neuroimaging ML. Modern EEG-ML studies use hundreds to thousands of subjects. Results here should be treated as a methods demonstration, not a scientific finding.
+1. **Sample size (n=16):** Below the minimum for robust neuroimaging ML. All results should be treated as a methodology demonstration, not a scientific finding.
 
-2. **No artefact rejection:** Ocular (blink), muscular, and movement artefacts remain in the signal. The formatted CSV was average-referenced in the preprocessing notebook but ICA or threshold-based rejection was not applied.
+2. **No pre-stimulus baseline:** P300 features are extracted from the raw 250–500 ms window without baseline correction, because the CSV epochs start at stimulus onset. Proper baseline correction would require pre-stimulus samples.
 
-3. **Single dataset / single site:** All recordings come from one lab with one protocol and one hardware setup. Generalisation to other populations, protocols, or EEG hardware is unknown.
+3. **No artefact rejection:** ICA or threshold-based removal of ocular/muscular artefacts was not applied.
 
-4. **Feature selection not applied:** 244 features with ~120 training samples per fold is a high-dimensional regime. Dimensionality reduction (PCA, feature selection) was not applied but could reduce overfitting in individual folds.
+4. **Single dataset / single site:** Generalisation to other populations, hardware, or protocols is unknown.
 
-5. **P300 not analysed:** The P300 event-related potential (a time-domain feature peaking ~300ms post-stimulus at parietal electrodes) is a well-documented AUD biomarker. This pipeline does not compute it. A separate time-domain analysis using S2 nomatch trials would be required.
+5. **Combined features need dimensionality reduction:** PCA or filter-based feature selection before SVM would likely make combined features competitive with P300-only.
 
 ---
 
@@ -163,12 +182,13 @@ The range from 0.275 to 0.775 across folds reveals that classification success d
 
 | Extension | Expected benefit |
 |-----------|-----------------|
-| Larger dataset (UCI full SMNI: 122 subjects) | Dramatically reduced variance; publishable results |
-| ICA artefact removal | Cleaner signal; better band-power estimates |
-| Time-domain features (P300 amplitude, latency) | Adds a well-validated biomarker |
-| Connectivity features (coherence, PLV between electrodes) | Captures inter-regional coupling |
+| Larger cohort (UCI full SMNI: 122 subjects) | Dramatically reduced variance; publishable results |
+| Baseline-corrected P300 (from raw files) | More precise ERP amplitude estimates |
+| ICA artefact removal | Cleaner signal throughout |
+| PCA before SVM on combined features | Fixes curse of dimensionality for combined mode |
+| Connectivity features (coherence, PLV) | Captures inter-regional coupling differences |
 | Deep learning (EEGNet, ShallowConvNet) | Learns spatial+temporal features jointly |
-| LOSO cross-validation | Maximum data use; one subject per test fold |
+| LOSO cross-validation | One subject per test fold — maximum data use |
 
 ---
 

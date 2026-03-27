@@ -28,28 +28,40 @@ Command-line entry point for the full pipeline. Wires together all `src/` module
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--data` | `data/EEG_formatted.csv` | Path to formatted EEG CSV |
-| `--condition` | `S1 obj` | EEG paradigm condition to classify |
+| `--features` | `combined` | `combined` \| `band_power` \| `p300` |
+| `--condition` | `S1 obj` | Condition for `band_power` mode only |
+| `--frontal-only` | off | Restrict band-power block to 26 frontal electrodes |
 | `--n-folds` | `4` | Outer GroupKFold folds |
-| `--frontal-only` | off | Restrict to 26 frontal electrodes |
 | `--output-dir` | `reports` | Where to save plots and JSON |
 | `--seed` | `42` | Random seed |
 | `--no-plots` | off | Skip plot generation |
+
+### Feature modes
+
+| `--features` | Condition | n_features | Notes |
+|---|---|---|---|
+| `combined` | S2 nomatch (forced) | 264 | P300 block + band-power block |
+| `p300` | S2 nomatch (forced) | 20 | Most stable CV results |
+| `band_power` | `--condition` arg | 244 | S1 obj recommended |
 
 ---
 
 ## Examples
 
 ```bash
-# Full run on complete dataset
+# Combined P300 + band-power (default)
 python main.py --data data/EEG_formatted.csv
+
+# P300 features only
+python main.py --data data/EEG_formatted.csv --features p300
+
+# Band-power only
+python main.py --data data/EEG_formatted.csv --features band_power --condition "S1 obj"
 
 # Smoke test with sample data
 python main.py --data data/sample/eeg_sample.csv --n-folds 2
 
-# Frontal electrodes only, S2 nomatch condition
-python main.py --data data/EEG_formatted.csv --condition "S2 nomatch" --frontal-only
-
-# Suppress plots (e.g. on a headless server)
+# Suppress plots (headless server)
 python main.py --data data/EEG_formatted.csv --no-plots
 ```
 

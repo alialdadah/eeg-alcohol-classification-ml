@@ -5,15 +5,23 @@ Entry point for the EEG Alcohol Classification pipeline.
 
 Usage
 -----
+    # Combined P300 + band-power (recommended)
     python main.py --data data/EEG_formatted.csv
+
+    # Band-power only on S1 obj
+    python main.py --data data/EEG_formatted.csv --features band_power --condition "S1 obj"
+
+    # P300 only
+    python main.py --data data/EEG_formatted.csv --features p300
+
+    # Smoke test with sample data
     python main.py --data data/sample/eeg_sample.csv --n-folds 2
-    python main.py --data data/EEG_formatted.csv --condition "S2 nomatch" --n-folds 4
 
 The script will:
   1. Load and validate the EEG data.
-  2. Build the feature matrix (band power per electrode per trial).
-  3. Run subject-aware cross-validation with inner hyperparameter search.
-  4. Print metrics and save plots + results JSON to reports/.
+  2. Build the feature matrix (mode selected by --features).
+  3. Run subject-aware GroupKFold cross-validation with inner hyperparameter search.
+  4. Print a metrics table and save plots + results JSON to reports/.
 """
 
 from __future__ import annotations
@@ -23,7 +31,12 @@ import sys
 from pathlib import Path
 
 from src.data_loader import load_eeg_data, summarize_dataset
-from src.features import build_feature_matrix
+from src.features import (
+    build_feature_matrix,
+    build_p300_features,
+    build_combined_features,
+    FRONTAL_ELECTRODES,
+)
 from src.train import cross_validate_subject_aware
 from src.evaluate import (
     print_cv_summary,
@@ -46,14 +59,38 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Path to EEG_formatted.csv (or the sample CSV for testing)",
     )
     parser.add_argument(
+        "--features",
+        type=str,
+        default="combined",
+        choices=["band_power", "p300", "combined"],
+        help=(
+            "Feature extraction mode:\n"
+            "  combined   — P300 ERP features (parietal electrodes) + band-power\n"
+            "               features (all electrodes), both from S2 nomatch trials.\n"
+            "               Scientifically strongest: uses the validated P300 biomarker\n"
+            "               alongside spectral power differences. (default)\n"
+            "  band_power — Welch PSD in delta/theta/alpha/beta across all electrodes.\n"
+            "               Condition controlled by --condition.\n"
+            "  p300       — P300 ERP features only at parietal/central electrodes.\n"
+            "               Forces S2 nomatch condition.\n"
+        ),
+    )
+    parser.add_argument(
         "--condition",
         type=str,
         default="S1 obj",
         choices=["S1 obj", "S2 match", "S2 nomatch"],
         help=(
-            "EEG paradigm condition to use for classification. "
-            "'S1 obj' is the single-stimulus condition (recommended). "
-            "'S2 nomatch' corresponds to the P300 oddball paradigm."
+            "Condition for band_power mode only. Ignored for p300 and combined "
+            "(those always use S2 nomatch, which is required for P300 elicitation)."
+        ),
+    )
+    parser.add_argument(
+        "--frontal-only",
+        action="store_true",
+        help=(
+            "For band_power and combined modes: restrict band-power electrodes to "
+            "frontal only (26 electrodes instead of 61). Has no effect on the P300 block."
         ),
     )
     parser.add_argument(
@@ -61,19 +98,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=int,
         default=4,
         help=(
-            "Number of outer GroupKFold folds. "
-            "Each fold holds out a disjoint set of subjects for testing. "
-            "Must be ≤ min(n_alcoholic_subjects, n_control_subjects)."
-        ),
-    )
-    parser.add_argument(
-        "--frontal-only",
-        action="store_true",
-        help=(
-            "Restrict features to frontal electrodes only "
-            "(AF3/4, F1-8/Z, FC1-6/Z, FP1/2/Z, FT7/8). "
-            "Reduces features from 244 to ~100. "
-            "Not set by default — all 61 electrodes are used."
+            "Number of outer GroupKFold folds. Each fold holds out a disjoint set "
+            "of subjects. Must be ≤ min(n_alcoholic_subjects, n_control_subjects)."
         ),
     )
     parser.add_argument(
@@ -109,32 +135,51 @@ def main(argv: list[str] | None = None) -> None:
     summarize_dataset(df)
 
     # ── 2. Build feature matrix ────────────────────────────────────────────
-    print(f"\nExtracting features (condition='{args.condition}') ...")
+    print(f"\nFeature mode: {args.features.upper()}")
+    bp_electrodes = FRONTAL_ELECTRODES if args.frontal_only else None
+    bp_note = "frontal electrodes" if args.frontal_only else "all 61 electrodes"
 
-    from src.features import FRONTAL_ELECTRODES
+    if args.features == "band_power":
+        print(f"  Condition     : {args.condition}")
+        print(f"  Electrodes    : {bp_note}")
+        X, y, groups, feature_names = build_feature_matrix(
+            df,
+            condition=args.condition,
+            electrodes=bp_electrodes,
+            verbose=True,
+        )
+        mode_description = f"band-power ({bp_note}, {args.condition})"
 
-    electrodes = FRONTAL_ELECTRODES if args.frontal_only else None
-    electrode_note = "frontal electrodes only" if args.frontal_only else "all 61 electrodes"
-    print(f"  Electrode set: {electrode_note}")
+    elif args.features == "p300":
+        print("  Condition     : S2 nomatch  (forced — P300 requires oddball paradigm)")
+        print("  P300 electrodes: CZ, PZ, P3, P4, POZ")
+        X, y, groups, feature_names = build_p300_features(df, verbose=True)
+        mode_description = "P300 ERP features (CZ, PZ, P3, P4, POZ)"
 
-    X, y, groups, feature_names = build_feature_matrix(
-        df,
-        condition=args.condition,
-        electrodes=electrodes,
-        verbose=True,
-    )
+    else:  # combined
+        print("  Condition     : S2 nomatch  (forced — P300 requires oddball paradigm)")
+        print("  P300 electrodes: CZ, PZ, P3, P4, POZ  (parietal / central-midline)")
+        print(f"  Band-power    : {bp_note}")
+        X, y, groups, feature_names = build_combined_features(
+            df,
+            bp_electrodes=bp_electrodes,
+            verbose=True,
+        )
+        mode_description = f"combined P300 + band-power ({bp_note})"
 
+    # ── 3. Auto-adjust n_folds ─────────────────────────────────────────────
     n_subjects = len(set(groups))
     if n_subjects < args.n_folds * 2:
+        new_folds = max(2, n_subjects // 2)
         print(
-            f"\nWARNING: Only {n_subjects} unique subjects found. "
-            f"Reducing n_folds from {args.n_folds} to {n_subjects // 2}."
+            f"\nWARNING: Only {n_subjects} subjects found. "
+            f"Reducing n_folds {args.n_folds} → {new_folds}."
         )
-        args.n_folds = max(2, n_subjects // 2)
+        args.n_folds = new_folds
 
-    # ── 3. Cross-validation ────────────────────────────────────────────────
+    # ── 4. Cross-validation ────────────────────────────────────────────────
     print(f"\nRunning {args.n_folds}-fold subject-aware cross-validation ...")
-    print("  (Each fold holds out a disjoint set of subjects as test set)\n")
+    print("  Each fold holds out a disjoint set of subjects as the test set.\n")
 
     cv_results = cross_validate_subject_aware(
         X, y, groups,
@@ -142,12 +187,9 @@ def main(argv: list[str] | None = None) -> None:
         verbose=True,
     )
 
-    # ── 4. Print summary ───────────────────────────────────────────────────
+    # ── 5. Print + save results ────────────────────────────────────────────
     print_cv_summary(cv_results)
-
-    # ── 5. Save results ────────────────────────────────────────────────────
-    results_path = output_dir / "cv_results.json"
-    save_results(cv_results, results_path)
+    save_results(cv_results, output_dir / "cv_results.json")
 
     if not args.no_plots:
         print("Saving plots ...")
@@ -155,22 +197,23 @@ def main(argv: list[str] | None = None) -> None:
         plot_roc_curve(cv_results,        save_path=output_dir / "roc_curve.png")
         plot_fold_metrics(cv_results,     save_path=output_dir / "fold_metrics.png")
 
-    # ── 6. Print honest summary for documentation ──────────────────────────
-    print("\n" + "=" * 60)
+    # ── 6. Honest summary ──────────────────────────────────────────────────
+    print("\n" + "=" * 62)
     print("  Honest performance summary")
-    print("=" * 60)
-    print(f"  Condition        : {args.condition}")
+    print("=" * 62)
+    print(f"  Feature mode     : {mode_description}")
     print(f"  CV strategy      : {args.n_folds}-fold GroupKFold (subject-level)")
-    print(f"  Feature set      : {electrode_note}")
-    print(f"  n_trials         : {len(y)}  (alcoholic={y.sum()}, control={(y==0).sum()})")
+    print(f"  n_trials         : {len(y)}  "
+          f"(alcoholic={y.sum()}, control={(y==0).sum()})")
     print(f"  n_subjects       : {n_subjects}")
+    print(f"  n_features       : {X.shape[1]}")
     print()
-    print(f"  Accuracy (mean±SD): {cv_results['mean_accuracy']:.3f} ± {cv_results['std_accuracy']:.3f}")
-    print(f"  F1     (mean±SD) : {cv_results['mean_f1']:.3f} ± {cv_results['std_f1']:.3f}")
-    print(f"  ROC-AUC(mean±SD) : {cv_results['mean_roc_auc']:.3f} ± {cv_results['std_roc_auc']:.3f}")
+    print(f"  Accuracy  (mean±SD): {cv_results['mean_accuracy']:.3f} ± {cv_results['std_accuracy']:.3f}")
+    print(f"  F1        (mean±SD): {cv_results['mean_f1']:.3f} ± {cv_results['std_f1']:.3f}")
+    print(f"  ROC-AUC   (mean±SD): {cv_results['mean_roc_auc']:.3f} ± {cv_results['std_roc_auc']:.3f}")
     print()
     print("  Results saved to:", output_dir.resolve())
-    print("=" * 60)
+    print("=" * 62)
 
 
 if __name__ == "__main__":
