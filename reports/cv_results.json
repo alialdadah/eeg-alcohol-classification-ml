@@ -1,0 +1,80 @@
+{
+  "fold_results": [
+    {
+      "fold": 1,
+      "n_train": 4,
+      "n_test": 4,
+      "test_subjects": [
+        "co2a0000365",
+        "co2c0000338"
+      ],
+      "accuracy": 0.5,
+      "f1": 0.6666666666666666,
+      "precision": 0.5,
+      "recall": 1.0,
+      "roc_auc": 0.5,
+      "best_params": {},
+      "y_test": [
+        1,
+        1,
+        0,
+        0
+      ],
+      "y_pred": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "y_proba": [
+        0.40376930245222836,
+        0.4045553562790668,
+        0.40331662198632234,
+        0.40872192068022745
+      ]
+    },
+    {
+      "fold": 2,
+      "n_train": 4,
+      "n_test": 4,
+      "test_subjects": [
+        "co2a0000364",
+        "co2c0000337"
+      ],
+      "accuracy": 0.5,
+      "f1": 0.6666666666666666,
+      "precision": 0.5,
+      "recall": 1.0,
+      "roc_auc": 0.0,
+      "best_params": {},
+      "y_test": [
+        1,
+        1,
+        0,
+        0
+      ],
+      "y_pred": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "y_proba": [
+        0.4564483905605379,
+        0.4564483905605187,
+        0.45644839106493174,
+        0.4576148868491102
+      ]
+    }
+  ],
+  "mean_accuracy": 0.5,
+  "std_accuracy": 0.0,
+  "mean_f1": 0.6666666666666666,
+  "std_f1": 0.0,
+  "mean_precision": 0.5,
+  "std_precision": 0.0,
+  "mean_recall": 1.0,
+  "std_recall": 0.0,
+  "mean_roc_auc": 0.25,
+  "std_roc_auc": 0.25
+}

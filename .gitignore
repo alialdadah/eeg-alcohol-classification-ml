@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+.venv/
+venv/
+.venv
+*.egg-info/
+dist/
+build/
+
+# Large data files — download separately (see data/README.md)
+# The full dataset is ~132 MB and must not be committed.
+data/EEG_formatted.csv
+data/raw/
+*.csv.zip
+*.zip
+
+# Keep the small sample fixture
+!data/sample/eeg_sample.csv
+
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/
+notebooks/.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db

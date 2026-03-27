@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find . -not -path './.git/*' -type f -exec ls -lh {})",
+      "Bash(python -c \":*)",
+      "Bash(python main.py --data data/sample/eeg_sample.csv --n-folds 2 --no-plots)"
+    ]
+  }
+}
